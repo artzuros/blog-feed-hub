@@ -14,54 +14,27 @@ function NotFoundComponent() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
-        <h1 className="text-7xl font-bold text-foreground">404</h1>
-        <h2 className="mt-4 text-xl font-semibold text-foreground">Page not found</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          The page you're looking for doesn't exist or has been moved.
-        </p>
-        <div className="mt-6">
-          <Link
-            to="/"
-            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            Go home
-          </Link>
-        </div>
+        <h1 className="text-7xl font-serif text-foreground">404</h1>
+        <p className="mt-2 text-sm text-muted-foreground">This page wandered off the press.</p>
+        <Link to="/" className="mt-6 inline-block underline underline-offset-4">Back to the front page</Link>
       </div>
     </div>
   );
 }
 
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
-  console.error(error);
   const router = useRouter();
-
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
-        <h1 className="text-xl font-semibold tracking-tight text-foreground">
-          This page didn't load
-        </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Something went wrong on our end. You can try refreshing or head back home.
-        </p>
-        <div className="mt-6 flex flex-wrap justify-center gap-2">
-          <button
-            onClick={() => {
-              router.invalidate();
-              reset();
-            }}
-            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            Try again
-          </button>
-          <a
-            href="/"
-            className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
-          >
-            Go home
-          </a>
-        </div>
+        <h1 className="text-2xl font-serif">Something went sideways</h1>
+        <p className="mt-2 text-sm text-muted-foreground">{error.message}</p>
+        <button
+          onClick={() => { router.invalidate(); reset(); }}
+          className="mt-6 rounded bg-primary px-4 py-2 text-sm text-primary-foreground"
+        >
+          Try again
+        </button>
       </div>
     </div>
   );
@@ -72,20 +45,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary" },
-      { name: "twitter:site", content: "@Lovable" },
+      { title: "Blog Scout — High-signal engineering reading" },
+      { name: "description", content: "A curated dispatch of engineering writing — searched, scored, and surfaced." },
     ],
     links: [
-      {
-        rel: "stylesheet",
-        href: appCss,
-      },
+      { rel: "stylesheet", href: appCss },
+      { rel: "preconnect", href: "https://fonts.googleapis.com" },
+      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
+      { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Work+Sans:wght@400;500;600&display=swap" },
     ],
   }),
   shellComponent: RootShell,
@@ -97,23 +64,59 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 function RootShell({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <head>
-        <HeadContent />
-      </head>
-      <body>
-        {children}
-        <Scripts />
-      </body>
+      <head><HeadContent /></head>
+      <body>{children}<Scripts /></body>
     </html>
+  );
+}
+
+function Masthead() {
+  const linkCls = "text-sm tracking-wide uppercase hover:text-accent transition-colors";
+  return (
+    <header className="rule-bottom bg-background/80 backdrop-blur sticky top-0 z-40">
+      <div className="mx-auto max-w-6xl px-6 py-4 flex items-center justify-between gap-6">
+        <Link to="/" className="flex items-baseline gap-3">
+          <span className="font-serif text-3xl leading-none">Blog Scout</span>
+          <span className="hidden md:inline text-xs uppercase tracking-[0.2em] text-muted-foreground">
+            Vol. I · Engineering Dispatch
+          </span>
+        </Link>
+        <nav className="flex items-center gap-6">
+          <Link to="/" className={linkCls} activeOptions={{ exact: true }} activeProps={{ className: linkCls + " text-accent" }}>Search</Link>
+          <Link to="/suggestions" className={linkCls} activeProps={{ className: linkCls + " text-accent" }}>Suggestions</Link>
+          <Link to="/admin" className={linkCls} activeProps={{ className: linkCls + " text-accent" }}>Admin</Link>
+        </nav>
+      </div>
+    </header>
+  );
+}
+
+function Colophon() {
+  return (
+    <footer className="rule-top mt-24">
+      <div className="mx-auto max-w-6xl px-6 py-10 flex flex-col md:flex-row justify-between gap-4 text-sm text-muted-foreground">
+        <div>
+          <div className="font-serif text-xl text-foreground">Blog Scout</div>
+          <div>A small press for engineering writing. Set in Instrument Serif & Work Sans.</div>
+        </div>
+        <div className="md:text-right">
+          <div>© {new Date().getFullYear()} — All articles © their respective authors.</div>
+          <div className="opacity-70">Printed on the web.</div>
+        </div>
+      </div>
+    </footer>
   );
 }
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
-
   return (
     <QueryClientProvider client={queryClient}>
-      <Outlet />
+      <div className="min-h-screen flex flex-col">
+        <Masthead />
+        <main className="flex-1"><Outlet /></main>
+        <Colophon />
+      </div>
     </QueryClientProvider>
   );
 }

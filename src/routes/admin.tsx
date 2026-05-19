@@ -18,7 +18,8 @@ type Suggestion = {
   domain: string;
   heuristic_score: number;
   combined_score?: number;
-  llm_review_status?: "pending" | "processing" | "completed" | "failed";
+  reviewed?: string;
+  accepted?: boolean;
 };
 
 type Article = {
@@ -43,6 +44,7 @@ function AdminPage() {
   const [rss, setRss] = useState("");
   const [processingQueue, setProcessingQueue] = useState(false);
   const [processingArticleId, setProcessingArticleId] = useState<number | null>(null);
+  const [acceptingUrl, setAcceptingUrl] = useState<string | null>(null);
 
   useEffect(() => {
     const stored = typeof window !== "undefined" ? sessionStorage.getItem("adminApiKey") || "" : "";
@@ -62,10 +64,13 @@ function AdminPage() {
   async function validateKey(key: string) {
     setIsValidating(true);
     try {
-        const resp = await fetch(`${API_BASE}/suggestions?limit=50`,
-        { headers: headers() });
+      // Fix: Use the correct admin verification endpoint
+      const resp = await fetch(`${API_BASE}/admin/verify`, {
+        headers: { "X-API-Key": key }
+      });
       if (resp.ok) {
         setAuthed(true);
+        sessionStorage.setItem("adminApiKey", key);
         flash("Authenticated", true);
       } else {
         setAuthed(false);
@@ -91,23 +96,39 @@ function AdminPage() {
 
   async function loadPending() {
     try {
-      const resp = await fetch(`${API_BASE}/suggestions?accepted=false&status=llm`, { headers: headers() });
+      // Fix: Use correct endpoint - get all suggestions and filter client-side
+      const resp = await fetch(`${API_BASE}/suggestions?limit=100`, { 
+        headers: headers() 
+      });
       const data = await resp.json();
-      setPending(Array.isArray(data) ? data : []);
-    } catch { flash("Error loading suggestions", false); }
+      // Filter for suggestions that are reviewed (LLM or manual) but not accepted
+      const pendingSuggestions = Array.isArray(data) ? data.filter(
+        (s: Suggestion) => (s.reviewed === 'llm' || s.reviewed === 'manual') && !s.accepted
+      ) : [];
+      setPending(pendingSuggestions);
+    } catch { 
+      flash("Error loading suggestions", false); 
+    }
   }
 
   async function loadRecentArticles() {
     try {
-      const resp = await fetch(`${API_BASE}/articles?limit=50&sort=-published_at`, { headers: headers() });
+      const resp = await fetch(`${API_BASE}/articles?limit=50`, { 
+        headers: headers() 
+      });
       const data = await resp.json();
-      // Handle both array and object responses
-      const articles = Array.isArray(data) ? data : (data.articles || data.items || []);
+      // Handle the response format from your new /articles endpoint
+      const articles = data.articles || (Array.isArray(data) ? data : []);
       setRecentArticles(articles);
-    } catch { flash("Error loading articles", false); }
+    } catch { 
+      flash("Error loading articles", false); 
+    }
   }
 
   async function accept(sugUrl: string) {
+    if (acceptingUrl === sugUrl) return; // Prevent double-click
+    setAcceptingUrl(sugUrl);
+    
     try {
       // Base64 encode the URL
       const encodedUrl = btoa(sugUrl);
@@ -124,6 +145,8 @@ function AdminPage() {
       }
     } catch { 
       flash("Network error", false); 
+    } finally {
+      setAcceptingUrl(null);
     }
   }
 
@@ -149,7 +172,10 @@ function AdminPage() {
       const resp = await fetch(`${API_BASE}/blogs/refresh`, { method: "POST", headers: headers() });
       const data = await resp.json();
       flash(`✅ ${data.message || "Done"}`, true);
-      setTimeout(loadRecentArticles, 2000);
+      setTimeout(() => {
+        loadRecentArticles();
+        loadPending();
+      }, 2000);
     } catch { flash("Scan failed", false); }
   }
 
@@ -272,12 +298,14 @@ function AdminPage() {
         </div>
       </div>
 
-      {/* LLM Review Section */}
+      {/* LLM Review Section - Shows articles that need review */}
       <div className="mb-12 rule-bottom pb-8">
         <div className="flex justify-between items-center mb-6">
           <div>
             <h2 className="font-serif text-3xl">LLM Review</h2>
-            <p className="text-muted-foreground text-sm mt-1">Trigger AI quality scoring for articles</p>
+            <p className="text-muted-foreground text-sm mt-1">
+              Articles without LLM scores (coming from scan without LLM)
+            </p>
           </div>
           <button 
             onClick={triggerLLMQueue}
@@ -335,13 +363,14 @@ function AdminPage() {
                       <td className="py-3">
                         <button
                           onClick={() => triggerSingleArticleLLM(article.id)}
-                          disabled={processingArticleId === article.id}
+                          disabled={processingArticleId === article.id || article.llm_score !== undefined}
                           className="text-xs px-3 py-1 rounded border border-foreground/30 hover:border-accent hover:text-accent transition-colors disabled:opacity-50"
+                          title={article.llm_score !== undefined ? "Already reviewed" : "Trigger LLM review"}
                         >
                           {processingArticleId === article.id ? (
                             <span className="animate-spin inline-block">⏳</span>
                           ) : (
-                            "Review"
+                            article.llm_score !== undefined ? "Reviewed" : "Review"
                           )}
                         </button>
                       </td>
@@ -364,7 +393,7 @@ function AdminPage() {
         <section>
           <h2 className="font-serif text-3xl rule-bottom pb-2 mb-4">Pending acceptance</h2>
           {pending.length === 0 ? (
-            <div className="text-muted-foreground italic">No LLM-reviewed suggestions pending.</div>
+            <div className="text-muted-foreground italic">No reviewed suggestions pending acceptance.</div>
           ) : (
             <ul className="space-y-4">
               {pending.map((s) => (
@@ -377,9 +406,10 @@ function AdminPage() {
                   </div>
                   <button
                     onClick={() => accept(s.url)}
-                    className="mt-2 text-xs uppercase tracking-wider border border-foreground/40 hover:border-accent hover:text-accent px-2 py-1 rounded"
+                    disabled={acceptingUrl === s.url}
+                    className="mt-2 text-xs uppercase tracking-wider border border-foreground/40 hover:border-accent hover:text-accent px-2 py-1 rounded disabled:opacity-50"
                   >
-                    Accept & add to blogs
+                    {acceptingUrl === s.url ? "Accepting..." : "Accept & add to blogs"}
                   </button>
                 </li>
               ))}

@@ -30,22 +30,28 @@ function SuggestionsPage() {
   const [list, setList] = useState<Suggestion[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [votingUrl, setVotingUrl] = useState<string | null>(null);
 
   async function load() {
     setLoading(true); setError(null);
     try {
-      const resp = await fetch(`${API_BASE}/suggestions?limit=100`);
+      // Add sort parameter to backend call
+      const resp = await fetch(`${API_BASE}/suggestions?limit=100&sort_by=${sortBy}`);
       const data = await resp.json();
-      setList(data);
+      // Handle both array and object responses
+      setList(Array.isArray(data) ? data : (data.suggestions || []));
     } catch {
       setError("Failed to load suggestions.");
     } finally { setLoading(false); }
   }
 
   async function vote(url: string, voteType: "up" | "down") {
-    const action = voteType === "up" ? "upvote" : "downvote";
+    if (votingUrl === url) return; // Prevent double vote
+    setVotingUrl(url);
+    
     try {
-      const resp = await fetch(`${API_BASE}/suggestions/${btoa(url)}/vote`, {
+      const encodedUrl = btoa(url);
+      const resp = await fetch(`${API_BASE}/suggestions/${encodedUrl}/vote`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ vote: voteType === "up" ? 1 : -1 }),
@@ -54,13 +60,15 @@ function SuggestionsPage() {
         const err = await resp.json();
         alert(`Error: ${err.detail || "Vote failed"}`);
       }
-      await load();
+      await load(); // Reload to get updated votes
     } catch {
       alert("Network error while voting");
+    } finally {
+      setVotingUrl(null);
     }
   }
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [sortBy]);
+  useEffect(() => { load(); }, [sortBy]);
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-16">
@@ -113,13 +121,15 @@ function SuggestionsPage() {
               <div className="flex gap-2">
                 <button
                   onClick={() => vote(s.url, "up")}
-                  className="border border-border hover:border-accent hover:text-accent px-3 py-1 rounded text-sm transition-colors"
+                  disabled={votingUrl === s.url}
+                  className="border border-border hover:border-accent hover:text-accent px-3 py-1 rounded text-sm transition-colors disabled:opacity-50"
                 >
                   ▲ {s.upvotes || 0}
                 </button>
                 <button
                   onClick={() => vote(s.url, "down")}
-                  className="border border-border hover:border-destructive hover:text-destructive px-3 py-1 rounded text-sm transition-colors"
+                  disabled={votingUrl === s.url}
+                  className="border border-border hover:border-destructive hover:text-destructive px-3 py-1 rounded text-sm transition-colors disabled:opacity-50"
                 >
                   ▼ {s.downvotes || 0}
                 </button>

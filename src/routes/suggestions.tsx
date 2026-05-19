@@ -34,7 +34,7 @@ function SuggestionsPage() {
   async function load() {
     setLoading(true); setError(null);
     try {
-      const resp = await fetch(`${API_BASE}/suggestions?status=pending&sort_by=${sortBy}`);
+      const resp = await fetch(`${API_BASE}/suggestions?limit=100`);
       const data = await resp.json();
       setList(data);
     } catch {
@@ -45,10 +45,10 @@ function SuggestionsPage() {
   async function vote(url: string, voteType: "up" | "down") {
     const action = voteType === "up" ? "upvote" : "downvote";
     try {
-      const resp = await fetch(`${API_BASE}/suggestions/${encodeURIComponent(url)}/review`, {
+      const resp = await fetch(`${API_BASE}/suggestions/${btoa(url)}/vote`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({ vote: voteType === "up" ? 1 : -1 }),
       });
       if (!resp.ok) {
         const err = await resp.json();

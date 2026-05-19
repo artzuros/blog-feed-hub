@@ -45,8 +45,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Blog Scout — High-signal engineering reading" },
-      { name: "description", content: "A curated dispatch of engineering writing — searched, scored, and surfaced." },
+      { title: "Blog Feed — High-signal engineering reading" },
+      { name: "description", content: "A curated dispatch of software engineering writing — searched, scored, and surfaced." },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
@@ -76,7 +76,7 @@ function Masthead() {
     <header className="rule-bottom bg-background/80 backdrop-blur sticky top-0 z-40">
       <div className="mx-auto max-w-6xl px-6 py-4 flex items-center justify-between gap-6">
         <Link to="/" className="flex items-baseline gap-3">
-          <span className="font-serif text-3xl leading-none">Blog Scout</span>
+          <span className="font-serif text-3xl leading-none">Blog Feed</span>
           <span className="hidden md:inline text-xs uppercase tracking-[0.2em] text-muted-foreground">
             Vol. I · Engineering Dispatch
           </span>
@@ -96,13 +96,51 @@ function Colophon() {
     <footer className="rule-top mt-24">
       <div className="mx-auto max-w-6xl px-6 py-10 flex flex-col md:flex-row justify-between gap-4 text-sm text-muted-foreground">
         <div>
-          <div className="font-serif text-xl text-foreground">Blog Scout</div>
-          <div>A small press for engineering writing. Set in Instrument Serif & Work Sans.</div>
+          <div className="font-serif text-xl text-foreground">Blog Feed</div>
+          <div>A small index for engineering writing.</div>
         </div>
-        <div className="md:text-right">
-          <div>© {new Date().getFullYear()} — All articles © their respective authors.</div>
-          <div className="opacity-70">Printed on the web.</div>
+        
+        <div className="space-y-1">
+          <div className="font-medium text-foreground">Contact</div>
+          <div>
+            <a 
+              href="mailto:admin@pranav-bansal.com" 
+              className="hover:text-accent transition-colors"
+            >
+              admin@pranav-bansal.com
+            </a>
+          </div>
+          <div>
+            <a 
+              href="https://github.com/artzuros" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="hover:text-accent transition-colors inline-flex items-center gap-1"
+            >
+              GitHub
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </a>
+          </div>
         </div>
+<div className="md:text-right space-y-1">
+  <div>
+    <a 
+      href="https://github.com/artzuros/blog-feed" 
+      target="_blank" 
+      rel="noopener noreferrer"
+      className="hover:text-accent transition-colors inline-flex items-center gap-1"
+    >
+      Contribute on GitHub
+      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+      </svg>
+    </a>
+  </div>
+  <div className="opacity-70">© {new Date().getFullYear()} — All articles © their respective authors.</div>
+  <div className="opacity-70">Listed on the web.</div>
+</div>
       </div>
     </footer>
   );

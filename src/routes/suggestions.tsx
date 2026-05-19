@@ -5,7 +5,7 @@ import { API_BASE } from "@/lib/api";
 export const Route = createFileRoute("/suggestions")({
   head: () => ({
     meta: [
-      { title: "Suggestions — Blog Scout" },
+      { title: "Suggestions — Blog Feed" },
       { name: "description", content: "Help curate the archive. Upvote promising blogs, downvote the rest." },
     ],
   }),

@@ -5,7 +5,7 @@ import { API_BASE, scoreClass } from "@/lib/api";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Blog Scout — Search engineering writing" },
+      { title: "Blog Feed — Search engineering writing" },
       { name: "description", content: "Search a curated index of engineering blog posts ranked by signal." },
     ],
   }),
@@ -56,14 +56,14 @@ function Index() {
           <div className="md:col-span-8">
             <div className="text-xs uppercase tracking-[0.3em] text-accent mb-4">Issue №{new Date().getFullYear()}</div>
             <h1 className="font-serif text-5xl md:text-7xl leading-[0.95] text-ink">
-              The week's best <em className="italic">engineering</em> writing, ranked by signal.
+              My heuristics "based" <em className="italic">engineering</em> blogs, that are worth a reading.
             </h1>
             <p className="mt-6 text-lg text-muted-foreground max-w-xl">
-              A small, opinionated index of deep technical posts — pulled from curated blogs and
+              A small, opinionated index of posts — pulled from curated blogs and
               surfaced from the noisier corners of the internet.
             </p>
           </div>
-          <div className="md:col-span-4 text-sm text-muted-foreground">
+          {/* <div className="md:col-span-4 text-sm text-muted-foreground">
             <div className="rule-top pt-4">
               <div className="font-serif text-2xl text-foreground">In this issue</div>
               <ul className="mt-3 space-y-1">
@@ -73,7 +73,7 @@ function Index() {
                 <li>— Developer tooling & languages</li>
               </ul>
             </div>
-          </div>
+          </div> */}
         </div>
       </section>
 

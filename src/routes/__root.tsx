@@ -84,7 +84,7 @@ function Masthead() {
         <nav className="flex items-center gap-6">
           <Link to="/" className={linkCls} activeOptions={{ exact: true }} activeProps={{ className: linkCls + " text-accent" }}>Search</Link>
           <Link to="/suggestions" className={linkCls} activeProps={{ className: linkCls + " text-accent" }}>Suggestions</Link>
-          <Link to="/admin" className={linkCls} activeProps={{ className: linkCls + " text-accent" }}>Admin</Link>
+          {/* <Link to="/admin" className={linkCls} activeProps={{ className: linkCls + " text-accent" }}>Admin</Link> */}
         </nav>
       </div>
     </header>

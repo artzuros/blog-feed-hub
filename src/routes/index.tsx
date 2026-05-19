@@ -20,6 +20,7 @@ type Article = {
   combined_score: number;
   source: string;
   keywords?: string;
+  semantic_relevance?: number; // For semantic search results
 };
 
 function Index() {
@@ -29,6 +30,7 @@ function Index() {
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<Article[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [searchType, setSearchType] = useState<"keyword" | "semantic">("keyword");
 
   // Keyboard shortcut for search
   useEffect(() => {
@@ -51,7 +53,9 @@ function Index() {
     setError(null);
     setResults(null);
     
-    let url = `${API_BASE}/search?q=${encodeURIComponent(q)}&limit=50`;
+    // Build URL based on search type
+    let url = `${API_BASE}/${searchType === "semantic" ? "semantic-search" : "search"}?q=${encodeURIComponent(q)}&limit=50`;
+    
     if (minScore) url += "&min_score=0.5";
     if (source) url += `&source=${source}`;
     
@@ -99,47 +103,79 @@ function Index() {
 
       {/* Search */}
       <section className="py-10 rule-bottom">
-        <form onSubmit={search} className="grid md:grid-cols-12 gap-4 items-end">
-          <div className="md:col-span-7">
-            <label className="block text-xs uppercase tracking-[0.2em] text-muted-foreground mb-2">
-              Search the archive <kbd className="ml-2 px-1.5 py-0.5 text-xs bg-muted rounded">⌘K</kbd>
-            </label>
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="kubernetes, postgres, distributed systems…"
-              className="w-full bg-transparent border-0 border-b-2 border-foreground/80 focus:border-accent outline-none py-2 text-2xl font-serif placeholder:text-muted-foreground/60"
-            />
-          </div>
-          <div className="md:col-span-3">
-            <label className="block text-xs uppercase tracking-[0.2em] text-muted-foreground mb-2">Source</label>
-            <select
-              value={source}
-              onChange={(e) => setSource(e.target.value)}
-              className="w-full bg-card border border-border rounded px-3 py-2 text-sm"
-            >
-              <option value="">All sources</option>
-              <option value="rss">Curated blogs</option>
-              <option value="reddit">From Reddit</option>
-            </select>
-          </div>
-          <div className="md:col-span-2 flex flex-col gap-3">
+        <form onSubmit={search} className="space-y-6">
+          {/* Search Type Toggle */}
+          <div className="flex gap-6 items-center justify-end">
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input 
-                type="checkbox" 
-                checked={minScore} 
-                onChange={(e) => setMinScore(e.target.checked)} 
+                type="radio" 
+                name="searchType"
+                value="keyword" 
+                checked={searchType === "keyword"}
+                onChange={() => setSearchType("keyword")}
                 className="cursor-pointer"
               />
-              <span>Score ≥ 0.5</span>
+              <span className={searchType === "keyword" ? "text-accent font-medium" : "text-muted-foreground"}>
+                Keyword Search
+              </span>
             </label>
-            <button 
-              type="submit" 
-              disabled={loading || !q.trim()}
-              className="bg-primary text-primary-foreground px-4 py-2 text-sm uppercase tracking-wider hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? "Searching…" : "Search"}
-            </button>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input 
+                type="radio" 
+                name="searchType"
+                value="semantic" 
+                checked={searchType === "semantic"}
+                onChange={() => setSearchType("semantic")}
+                className="cursor-pointer"
+              />
+              <span className={searchType === "semantic" ? "text-accent font-medium" : "text-muted-foreground"}>
+                Semantic Search
+              </span>
+            </label>
+          </div>
+
+          <div className="grid md:grid-cols-12 gap-4 items-end">
+            <div className="md:col-span-7">
+              <label className="block text-xs uppercase tracking-[0.2em] text-muted-foreground mb-2">
+                Search the archive <kbd className="ml-2 px-1.5 py-0.5 text-xs bg-muted rounded">⌘K</kbd>
+              </label>
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="kubernetes, postgres, distributed systems…"
+                className="w-full bg-transparent border-0 border-b-2 border-foreground/80 focus:border-accent outline-none py-2 text-2xl font-serif placeholder:text-muted-foreground/60"
+              />
+            </div>
+            <div className="md:col-span-3">
+              <label className="block text-xs uppercase tracking-[0.2em] text-muted-foreground mb-2">Source</label>
+              <select
+                value={source}
+                onChange={(e) => setSource(e.target.value)}
+                className="w-full bg-card border border-border rounded px-3 py-2 text-sm"
+              >
+                <option value="">All sources</option>
+                <option value="rss">Curated blogs</option>
+                <option value="reddit">From Reddit</option>
+              </select>
+            </div>
+            <div className="md:col-span-2 flex flex-col gap-3">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  checked={minScore} 
+                  onChange={(e) => setMinScore(e.target.checked)} 
+                  className="cursor-pointer"
+                />
+                <span>Score ≥ 0.5</span>
+              </label>
+              <button 
+                type="submit" 
+                disabled={loading || !q.trim()}
+                className="bg-primary text-primary-foreground px-4 py-2 text-sm uppercase tracking-wider hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? "Searching…" : "Search"}
+              </button>
+            </div>
           </div>
         </form>
       </section>
@@ -155,7 +191,7 @@ function Index() {
         {loading && (
           <div className="text-center py-16">
             <div className="text-muted-foreground italic font-serif text-xl animate-pulse">
-              Setting type…
+              {searchType === "semantic" ? "Understanding your query..." : "Setting type…"}
             </div>
           </div>
         )}
@@ -174,7 +210,14 @@ function Index() {
         {results && results.length > 0 && (
           <>
             <div className="flex items-baseline justify-between mb-8 rule-bottom pb-3">
-              <h2 className="font-serif text-3xl">Dispatches</h2>
+              <div>
+                <h2 className="font-serif text-3xl">Dispatches</h2>
+                {searchType === "semantic" && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Results ranked by semantic relevance to your query
+                  </p>
+                )}
+              </div>
               <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
                 {results.length} article{results.length !== 1 ? 's' : ''}
               </span>
@@ -184,6 +227,11 @@ function Index() {
                 <article key={a.url} className="group">
                   <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground mb-2">
                     №{String(i + 1).padStart(2, "0")} · {a.source === "rss" ? "Curated" : "Reddit"}
+                    {a.semantic_relevance && (
+                      <span className="ml-2 text-accent">
+                        relevance: {Math.round(a.semantic_relevance * 100)}%
+                      </span>
+                    )}
                   </div>
                   <h3 className="font-serif text-2xl md:text-3xl leading-tight">
                     <a href={a.url} target="_blank" rel="noreferrer" className="hover:text-accent transition-colors">

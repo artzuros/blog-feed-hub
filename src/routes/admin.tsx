@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { API_BASE } from "@/lib/api";
 
@@ -64,7 +64,6 @@ function AdminPage() {
   async function validateKey(key: string) {
     setIsValidating(true);
     try {
-      // Fix: Use the correct admin verification endpoint
       const resp = await fetch(`${API_BASE}/admin/verify`, {
         headers: { "X-API-Key": key }
       });
@@ -96,12 +95,10 @@ function AdminPage() {
 
   async function loadPending() {
     try {
-      // Fix: Use correct endpoint - get all suggestions and filter client-side
       const resp = await fetch(`${API_BASE}/suggestions?limit=100`, { 
         headers: headers() 
       });
       const data = await resp.json();
-      // Filter for suggestions that are reviewed (LLM or manual) but not accepted
       const pendingSuggestions = Array.isArray(data) ? data.filter(
         (s: Suggestion) => (s.reviewed === 'llm' || s.reviewed === 'manual') && !s.accepted
       ) : [];
@@ -117,7 +114,6 @@ function AdminPage() {
         headers: headers() 
       });
       const data = await resp.json();
-      // Handle the response format from your new /articles endpoint
       const articles = data.articles || (Array.isArray(data) ? data : []);
       setRecentArticles(articles);
     } catch { 
@@ -126,13 +122,11 @@ function AdminPage() {
   }
 
   async function accept(sugUrl: string) {
-    if (acceptingUrl === sugUrl) return; // Prevent double-click
+    if (acceptingUrl === sugUrl) return;
     setAcceptingUrl(sugUrl);
     
     try {
-      // Base64 encode the URL
       const encodedUrl = btoa(sugUrl);
-      
       const resp = await fetch(`${API_BASE}/suggestions/accept?suggestion_url=${encodedUrl}`, {
         method: "POST", 
         headers: headers(),
@@ -241,7 +235,6 @@ function AdminPage() {
           <h1 className="font-serif text-4xl">Admin verification</h1>
           <p className="mt-3 text-muted-foreground text-sm">Enter your API key to access editorial controls.</p>
         </div>
-
         <div className="space-y-4">
           <div>
             <label className="block text-xs uppercase tracking-[0.2em] text-muted-foreground mb-2">API Key</label>
@@ -284,20 +277,32 @@ function AdminPage() {
             <h1 className="font-serif text-5xl">Editorial controls.</h1>
             <p className="mt-3 text-muted-foreground">Accept submissions, add curated blogs, and manage LLM reviews.</p>
           </div>
-          <button 
-            onClick={() => {
-              sessionStorage.removeItem("adminApiKey");
-              setAuthed(false);
-              setApiKey("");
-              flash("Logged out", true);
-            }}
-            className="text-xs text-muted-foreground hover:text-destructive transition-colors"
-          >
-            Logout
-          </button>
+          <div className="flex gap-4 items-center">
+            <Link 
+              to="/blogs"
+              onClick={() => {
+                console.log("Link clicked - navigating to /admin/blogs");
+                console.log("Current path:", window.location.pathname);
+              }}
+              className="text-sm underline underline-offset-4 hover:text-accent transition-colors"
+            >
+              Manage Blogs
+            </Link>
+            <button 
+              onClick={() => {
+                sessionStorage.removeItem("adminApiKey");
+                setAuthed(false);
+                setApiKey("");
+                flash("Logged out", true);
+              }}
+              className="text-xs text-muted-foreground hover:text-destructive transition-colors"
+            >
+              Logout
+            </button>
+          </div>
         </div>
       </div>
-
+      
       {/* LLM Review Section - Shows articles that need review */}
       <div className="mb-12 rule-bottom pb-8">
         <div className="flex justify-between items-center mb-6">

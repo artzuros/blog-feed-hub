@@ -12,19 +12,6 @@ export const Route = createFileRoute("/admin")({
   component: AdminPage,
 });
 
-type Suggestion = {
-  url: string;
-  title: string;
-  domain: string;
-  heuristic_score: number;
-  llm_score?: number;
-  combined_score?: number;
-  reviewed?: string;
-  accepted?: boolean;
-  reddit_score?: number;
-  subreddit?: string;
-};
-
 type Article = {
   id: number;
   title: string;
@@ -39,7 +26,6 @@ function AdminPage() {
   const [apiKey, setApiKey] = useState("");
   const [authed, setAuthed] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
-  const [pending, setPending] = useState<Suggestion[]>([]);
   const [recentArticles, setRecentArticles] = useState<Article[]>([]);
   const [status, setStatus] = useState<{ msg: string; ok: boolean } | null>(null);
   const [name, setName] = useState(""); 
@@ -47,8 +33,6 @@ function AdminPage() {
   const [rss, setRss] = useState("");
   const [processingQueue, setProcessingQueue] = useState(false);
   const [processingArticleId, setProcessingArticleId] = useState<number | null>(null);
-  const [acceptingUrl, setAcceptingUrl] = useState<string | null>(null);
-  const [llmReviewingUrl, setLlmReviewingUrl] = useState<string | null>(null);
 
   useEffect(() => {
     const stored = typeof window !== "undefined" ? sessionStorage.getItem("adminApiKey") || "" : "";
@@ -60,7 +44,6 @@ function AdminPage() {
 
   useEffect(() => { 
     if (authed) {
-      loadPending();
       loadRecentArticles();
     }
   }, [authed]);
@@ -97,22 +80,6 @@ function AdminPage() {
     setTimeout(() => setStatus(null), 5000);
   }
 
-  async function loadPending() {
-    try {
-      const resp = await fetch(`${API_BASE}/suggestions?limit=100`, { 
-        headers: headers() 
-      });
-      const data = await resp.json();
-      // Show all non-accepted suggestions
-      const pendingSuggestions = Array.isArray(data) ? data.filter(
-        (s: Suggestion) => !s.accepted
-      ) : [];
-      setPending(pendingSuggestions);
-    } catch { 
-      flash("Error loading suggestions", false); 
-    }
-  }
-
   async function loadRecentArticles() {
     try {
       const resp = await fetch(`${API_BASE}/articles?limit=50`, { 
@@ -123,58 +90,6 @@ function AdminPage() {
       setRecentArticles(articles);
     } catch { 
       flash("Error loading articles", false); 
-    }
-  }
-
-  async function triggerSuggestionLLM(sugUrl: string) {
-    if (llmReviewingUrl === sugUrl) return;
-    setLlmReviewingUrl(sugUrl);
-    flash("⏳ Running LLM review on article... (may take 30-60 seconds)", true);
-    
-    try {
-      const encodedUrl = btoa(sugUrl);
-      const resp = await fetch(`${API_BASE}/suggestions/${encodedUrl}/llm-review`, {
-        method: "POST",
-        headers: headers(),
-      });
-      const data = await resp.json();
-      flash(resp.ok ? `✅ ${data.message}` : `❌ ${data.detail || "Error"}`, resp.ok);
-      if (resp.ok) {
-        // Wait 5 seconds then refresh to show LLM results
-        setTimeout(() => {
-          loadPending();
-          flash("LLM review complete! You can now accept the article.", true);
-        }, 5000);
-      }
-    } catch {
-      flash("Network error", false);
-    } finally {
-      setLlmReviewingUrl(null);
-    }
-  }
-
-  async function accept(sugUrl: string) {
-    if (acceptingUrl === sugUrl) return;
-    setAcceptingUrl(sugUrl);
-    
-    try {
-      const encodedUrl = btoa(sugUrl);
-      const resp = await fetch(`${API_BASE}/suggestions/accept?suggestion_url=${encodedUrl}`, {
-        method: "POST", 
-        headers: headers(),
-      });
-      const data = await resp.json();
-      flash(resp.ok ? `✅ ${data.message}` : `❌ ${data.detail || "Error"}`, resp.ok);
-      if (resp.ok) {
-        setTimeout(() => {
-          loadPending();
-          loadRecentArticles();
-        }, 1000);
-      }
-    } catch { 
-      flash("Network error", false); 
-    } finally {
-      setAcceptingUrl(null);
     }
   }
 
@@ -202,7 +117,6 @@ function AdminPage() {
       flash(`✅ ${data.message || "Done"}`, true);
       setTimeout(() => {
         loadRecentArticles();
-        loadPending();
       }, 2000);
     } catch { flash("Scan failed", false); }
   }
@@ -220,7 +134,6 @@ function AdminPage() {
       flash(`✅ ${data.message || "Queue processed"}`, true);
       setTimeout(() => {
         loadRecentArticles();
-        loadPending();
       }, 2000);
     } catch { flash("Queue review failed", false); }
     finally { setProcessingQueue(false); }
@@ -238,7 +151,6 @@ function AdminPage() {
       flash(`✅ ${data.message || "Review completed"}`, true);
       setTimeout(() => {
         loadRecentArticles();
-        loadPending();
       }, 1000);
     } catch { flash("Article review failed", false); }
     finally { setProcessingArticleId(null); }
@@ -307,16 +219,16 @@ function AdminPage() {
       <div className="rule-bottom pb-6 mb-10">
         <div className="flex justify-between items-end">
           <div>
-            <div className="text-xs uppercase tracking-[0.3em] text-accent mb-2">Newsroom</div>
+            <div className="text-xs uppercase tracking-[0.3em] text-accent mb-2">Admin Panel</div>
             <h1 className="font-serif text-5xl">Editorial controls.</h1>
-            <p className="mt-3 text-muted-foreground">Review Reddit suggestions, manage LLM reviews, and curate articles.</p>
+            <p className="mt-3 text-muted-foreground">Manage curated blogs and LLM reviews.</p>
           </div>
           <div className="flex gap-4 items-center">
             <Link 
               to="/blogs"
               className="text-sm underline underline-offset-4 hover:text-accent transition-colors"
             >
-              Manage Blogs
+              Manage Blogs & Reddit
             </Link>
             <button 
               onClick={() => {
@@ -331,59 +243,6 @@ function AdminPage() {
             </button>
           </div>
         </div>
-      </div>
-      
-      {/* Reddit Suggestions Section */}
-      <div className="mb-12">
-        <h2 className="font-serif text-3xl mb-4">Reddit Suggestions</h2>
-        <p className="text-muted-foreground text-sm mb-4">
-          Discovered from Reddit. Run LLM review to get AI scoring, then accept high-quality articles.
-        </p>
-        
-        {pending.length === 0 ? (
-          <div className="text-muted-foreground italic">No pending suggestions. Run Reddit discovery to find articles.</div>
-        ) : (
-          <div className="grid gap-4">
-            {pending.map((s) => (
-              <div key={s.url} className="border border-border rounded-lg p-4 bg-card">
-                <a href={s.url} target="_blank" rel="noreferrer" className="font-serif text-lg hover:text-accent">
-                  {s.title}
-                </a>
-                <div className="text-xs text-muted-foreground mt-1">
-                  {s.domain} · r/{s.subreddit} · 👍 {s.reddit_score}
-                </div>
-                <div className="text-xs text-muted-foreground mt-1">
-                  Heuristic score: {s.heuristic_score.toFixed(2)}
-                  {s.llm_score && ` · LLM score: ${s.llm_score.toFixed(2)}`}
-                  {s.combined_score && ` · Combined: ${s.combined_score.toFixed(2)}`}
-                </div>
-                <div className="mt-3 flex gap-2">
-                  {!s.llm_score && s.reviewed !== 'processing' && (
-                    <button
-                      onClick={() => triggerSuggestionLLM(s.url)}
-                      disabled={llmReviewingUrl === s.url}
-                      className="text-xs px-3 py-1 rounded border border-foreground/30 hover:border-accent hover:text-accent transition-colors disabled:opacity-50"
-                    >
-                      {llmReviewingUrl === s.url ? "Reviewing..." : "🤖 LLM Review"}
-                    </button>
-                  )}
-                  {s.llm_score && (
-                    <button
-                      onClick={() => accept(s.url)}
-                      disabled={acceptingUrl === s.url}
-                      className="text-xs px-3 py-1 rounded bg-green-600/20 text-green-700 hover:bg-green-600/30 transition-colors disabled:opacity-50"
-                    >
-                      {acceptingUrl === s.url ? "Accepting..." : "✅ Accept Article"}
-                    </button>
-                  )}
-                  {s.reviewed === 'failed' && (
-                    <span className="text-xs text-red-500">LLM review failed - {s.llm_error}</span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* LLM Review Section - Shows articles that need review */}

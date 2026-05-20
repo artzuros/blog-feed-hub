@@ -31,8 +31,11 @@ type RedditSuggestion = {
   subreddit: string;
   reddit_score: number;
   heuristic_score: number;
+  llm_score?: number;
   combined_score?: number;
   reviewed?: string;
+  accepted?: boolean;
+  llm_error?: string;
 };
 
 function BlogsPage() {
@@ -49,6 +52,9 @@ function BlogsPage() {
   const [redditSuggestions, setRedditSuggestions] = useState<RedditSuggestion[]>([]);
   const [discoveryRunning, setDiscoveryRunning] = useState(false);
   const [showRedditSection, setShowRedditSection] = useState(true);
+  const [llmReviewingUrl, setLlmReviewingUrl] = useState<string | null>(null);
+  const [acceptingUrl, setAcceptingUrl] = useState<string | null>(null);
+  const [rejectingUrl, setRejectingUrl] = useState<string | null>(null);
 
   useEffect(() => {
     const stored = sessionStorage.getItem("adminApiKey");
@@ -121,7 +127,9 @@ function BlogsPage() {
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       
       const data = await resp.json();
-      setRedditSuggestions(data);
+      // Filter out accepted suggestions
+      const pending = data.filter((s: RedditSuggestion) => !s.accepted);
+      setRedditSuggestions(pending);
     } catch (err) {
       console.error("Error fetching Reddit suggestions:", err);
     }
@@ -208,25 +216,95 @@ function BlogsPage() {
     }
   }
 
-  async function acceptRedditSuggestion(suggestion: RedditSuggestion) {
-    if (!confirm(`Accept "${suggestion.domain}" as a curated blog?`)) return;
+  async function triggerSuggestionLLM(suggestion: RedditSuggestion) {
+    if (llmReviewingUrl === suggestion.url) return;
+    setLlmReviewingUrl(suggestion.url);
+    flash(`⏳ Running LLM review on "${suggestion.title.substring(0, 50)}..." (may take 30-60 seconds)`, true);
     
     try {
+      const encodedUrl = btoa(suggestion.url);
+      const resp = await fetch(`${API_BASE}/suggestions/${encodedUrl}/llm-review`, {
+        method: "POST",
+        headers: { "X-API-Key": apiKey },
+      });
+      const data = await resp.json();
+      
+      if (resp.ok) {
+        flash(`✅ LLM review started for ${suggestion.domain}`, true);
+        // Poll for completion
+        let attempts = 0;
+        const pollInterval = setInterval(async () => {
+          attempts++;
+          await fetchRedditSuggestions(apiKey);
+          const updated = redditSuggestions.find(s => s.url === suggestion.url);
+          if (updated?.llm_score || attempts > 12) {
+            clearInterval(pollInterval);
+            if (updated?.llm_score) {
+              flash(`✅ LLM review complete! Score: ${updated.llm_score.toFixed(2)}`, true);
+            } else if (attempts > 12) {
+              flash(`⚠️ LLM review taking longer than expected. Refresh manually.`, false);
+            }
+          }
+        }, 5000);
+      } else {
+        flash(`❌ ${data.detail || "LLM review failed"}`, false);
+      }
+    } catch {
+      flash("Network error", false);
+    } finally {
+      setLlmReviewingUrl(null);
+    }
+  }
+
+  async function acceptSuggestion(suggestion: RedditSuggestion) {
+    if (!confirm(`Accept this article from "${suggestion.domain}"? It will be saved to your database.`)) return;
+    if (acceptingUrl === suggestion.url) return;
+    setAcceptingUrl(suggestion.url);
+    
+    try {
+      const encodedUrl = btoa(suggestion.url);
+      const resp = await fetch(`${API_BASE}/suggestions/accept?suggestion_url=${encodedUrl}`, {
+        method: "POST", 
+        headers: { "X-API-Key": apiKey },
+      });
+      const data = await resp.json();
+      
+      if (resp.ok) {
+        flash(`✅ ${data.message}`, true);
+        await fetchRedditSuggestions(apiKey);
+      } else {
+        flash(`❌ ${data.detail || "Accept failed"}`, false);
+      }
+    } catch { 
+      flash("Network error", false); 
+    } finally {
+      setAcceptingUrl(null);
+    }
+  }
+
+  async function rejectSuggestion(suggestion: RedditSuggestion) {
+    if (!confirm(`Reject "${suggestion.domain}"? It will be removed from suggestions.`)) return;
+    if (rejectingUrl === suggestion.url) return;
+    setRejectingUrl(suggestion.url);
+    
+    try {
+      // Mark as rejected/accepted to remove from list
       const resp = await fetch(`${API_BASE}/reddit/suggestions/accept?suggestion_url=${encodeURIComponent(suggestion.url)}`, {
         method: "POST",
         headers: { "X-API-Key": apiKey },
       });
       
       if (resp.ok) {
-        flash(`Accepted ${suggestion.domain}. Add to blogs.csv manually or run scan.`, true);
+        flash(`Rejected ${suggestion.domain}`, true);
         await fetchRedditSuggestions(apiKey);
-        await fetchBlogs(apiKey);
       } else {
-        flash("Accept failed", false);
+        flash("Reject failed", false);
       }
     } catch (err) {
-      console.error("Accept error:", err);
+      console.error("Reject error:", err);
       flash("Network error", false);
+    } finally {
+      setRejectingUrl(null);
     }
   }
 
@@ -258,8 +336,8 @@ function BlogsPage() {
       {/* Header */}
       <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="font-serif text-4xl mb-2">Blog Management</h1>
-          <p className="text-muted-foreground">Manage curated blogs, discover new ones, and review articles</p>
+          <h1 className="font-serif text-4xl mb-2">Blog & Article Management</h1>
+          <p className="text-muted-foreground">Manage curated blogs and review Reddit discoveries</p>
         </div>
         <Link to="/admin" className="text-sm underline hover:text-accent">
           ← Back to Admin
@@ -289,7 +367,7 @@ function BlogsPage() {
           <div className="p-4 border border-border rounded-lg bg-card">
             <div className="flex justify-between items-center mb-4">
               <p className="text-sm text-muted-foreground">
-                Discover engineering blogs from Reddit. Suggestions are scored by heuristic quality.
+                Discover individual articles from Reddit. Run LLM review to get AI scoring, then accept high-quality articles.
               </p>
               <button
                 onClick={runRedditDiscovery}
@@ -302,7 +380,7 @@ function BlogsPage() {
             
             {redditSuggestions.length > 0 ? (
               <div className="mt-4">
-                <h3 className="font-semibold mb-3">New suggestions ({redditSuggestions.length})</h3>
+                <h3 className="font-semibold mb-3">Pending suggestions ({redditSuggestions.length})</h3>
                 <div className="space-y-3 max-h-96 overflow-y-auto">
                   {redditSuggestions.map((s) => (
                     <div key={s.url} className="flex justify-between items-start p-3 border-b hover:bg-muted/50 rounded">
@@ -313,28 +391,56 @@ function BlogsPage() {
                           rel="noopener noreferrer" 
                           className="font-medium hover:text-accent"
                         >
-                          {s.domain}
+                          {s.title}
                         </a>
-                        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{s.title}</p>
-                        <div className="flex gap-3 mt-1 text-xs text-muted-foreground">
-                          <span>r/{s.subreddit}</span>
-                          <span>👍 {s.reddit_score}</span>
-                          <span>Score: {s.heuristic_score.toFixed(2)}</span>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {s.domain} · r/{s.subreddit} · 👍 {s.reddit_score}
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          Heuristic: {s.heuristic_score.toFixed(2)}
+                          {s.llm_score && ` · LLM: ${s.llm_score.toFixed(2)}`}
+                          {s.combined_score && ` · Combined: ${s.combined_score.toFixed(2)}`}
                         </div>
                       </div>
-                      <button
-                        onClick={() => acceptRedditSuggestion(s)}
-                        className="ml-4 text-xs border px-3 py-1 rounded hover:border-accent hover:text-accent"
-                      >
-                        Accept
-                      </button>
+                      <div className="flex gap-2">
+                        {!s.llm_score && s.reviewed !== 'processing' && (
+                          <button
+                            onClick={() => triggerSuggestionLLM(s)}
+                            disabled={llmReviewingUrl === s.url}
+                            className="text-xs px-3 py-1 rounded border border-foreground/30 hover:border-accent hover:text-accent transition-colors disabled:opacity-50"
+                          >
+                            {llmReviewingUrl === s.url ? "Reviewing..." : "🤖 LLM Review"}
+                          </button>
+                        )}
+                        {s.llm_score && (
+                          <>
+                            <button
+                              onClick={() => acceptSuggestion(s)}
+                              disabled={acceptingUrl === s.url}
+                              className="text-xs px-3 py-1 rounded bg-green-600/20 text-green-700 hover:bg-green-600/30 transition-colors disabled:opacity-50"
+                            >
+                              {acceptingUrl === s.url ? "Accepting..." : "✅ Accept"}
+                            </button>
+                            <button
+                              onClick={() => rejectSuggestion(s)}
+                              disabled={rejectingUrl === s.url}
+                              className="text-xs px-3 py-1 rounded bg-red-600/20 text-red-700 hover:bg-red-600/30 transition-colors disabled:opacity-50"
+                            >
+                              {rejectingUrl === s.url ? "..." : "❌ Reject"}
+                            </button>
+                          </>
+                        )}
+                        {s.reviewed === 'failed' && (
+                          <span className="text-xs text-red-500">Failed: {s.llm_error}</span>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
               </div>
             ) : (
               <div className="text-center py-8 text-muted-foreground">
-                No pending suggestions. Run discovery to find new blogs.
+                No pending suggestions. Run discovery to find articles.
               </div>
             )}
           </div>
@@ -343,7 +449,7 @@ function BlogsPage() {
 
       {/* Blogs Table */}
       <div>
-        <h2 className="font-serif text-2xl mb-4">Curated Blogs</h2>
+        <h2 className="font-serif text-2xl mb-4">Curated Blogs (RSS Subscriptions)</h2>
         {blogs.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground border rounded-lg">
             No blogs found. Add blogs from the main admin page.
@@ -431,7 +537,7 @@ function BlogsPage() {
                       <th className="pb-2 w-20">Heuristic</th>
                       <th className="pb-2 w-20">LLM</th>
                       <th className="pb-2 w-20">Combined</th>
-                     </tr>
+                    </tr>
                   </thead>
                   <tbody>
                     {articles.map((article) => (
@@ -448,7 +554,7 @@ function BlogsPage() {
                           <div className="text-xs text-muted-foreground mt-1">
                             {new Date(article.fetched_at).toLocaleDateString()}
                           </div>
-                         </td>
+                        </td>
                         <td className="py-2 text-center font-mono">
                           {article.heuristic_score.toFixed(2)}
                         </td>
@@ -470,4 +576,5 @@ function BlogsPage() {
     </div>
   );
 }
+
 export default BlogsPage;

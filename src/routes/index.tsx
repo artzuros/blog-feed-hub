@@ -30,7 +30,25 @@ function Index() {
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<Article[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [searchType, setSearchType] = useState<"keyword" | "semantic">("keyword");
+  
+  // ============================================================
+  // SLIDER CONFIGURATION - ADJUST THESE VALUES
+  // ============================================================
+  // Default min relevance threshold (0.5 = 50% similarity)
+  // Lower = more results (but less relevant), Higher = fewer results (more relevant)
+  const DEFAULT_MIN_RELEVANCE = 0.5;
+  
+  // Show/hide the relevance slider (true = show, false = hide)
+  // TODO: Set to false to hide the slider from users
+  const SHOW_RELEVANCE_SLIDER = true;  // ← Change to false to hide slider
+  
+  // Slider min/max values
+  const SLIDER_MIN = 0.3;
+  const SLIDER_MAX = 0.9;
+  const SLIDER_STEP = 0.05;
+  // ============================================================
+  
+  const [minRelevance, setMinRelevance] = useState(DEFAULT_MIN_RELEVANCE);
 
   // Keyboard shortcut for search
   useEffect(() => {
@@ -53,8 +71,13 @@ function Index() {
     setError(null);
     setResults(null);
     
-    // Build URL based on search type
-    let url = `${API_BASE}/${searchType === "semantic" ? "semantic-search" : "search"}?q=${encodeURIComponent(q)}&limit=50`;
+    // Always use semantic search (removed keyword toggle)
+    let url = `${API_BASE}/semantic-search?q=${encodeURIComponent(q)}&limit=50`;
+    
+    // Add min relevance filter (only if not default or slider is shown)
+    if (minRelevance !== DEFAULT_MIN_RELEVANCE || SHOW_RELEVANCE_SLIDER) {
+      url += `&min_relevance=${minRelevance}`;
+    }
     
     if (minScore) url += "&min_score=0.5";
     if (source) url += `&source=${source}`;
@@ -104,36 +127,8 @@ function Index() {
       {/* Search */}
       <section className="py-10 rule-bottom">
         <form onSubmit={search} className="space-y-6">
-          {/* Search Type Toggle */}
-          <div className="flex gap-6 items-center justify-end">
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input 
-                type="radio" 
-                name="searchType"
-                value="keyword" 
-                checked={searchType === "keyword"}
-                onChange={() => setSearchType("keyword")}
-                className="cursor-pointer"
-              />
-              <span className={searchType === "keyword" ? "text-accent font-medium" : "text-muted-foreground"}>
-                Keyword Search
-              </span>
-            </label>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input 
-                type="radio" 
-                name="searchType"
-                value="semantic" 
-                checked={searchType === "semantic"}
-                onChange={() => setSearchType("semantic")}
-                className="cursor-pointer"
-              />
-              <span className={searchType === "semantic" ? "text-accent font-medium" : "text-muted-foreground"}>
-                Semantic Search
-              </span>
-            </label>
-          </div>
-
+          {/* Removed search type toggle - now always semantic search */}
+          
           <div className="grid md:grid-cols-12 gap-4 items-end">
             <div className="md:col-span-7">
               <label className="block text-xs uppercase tracking-[0.2em] text-muted-foreground mb-2">
@@ -159,15 +154,6 @@ function Index() {
               </select>
             </div>
             <div className="md:col-span-2 flex flex-col gap-3">
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input 
-                  type="checkbox" 
-                  checked={minScore} 
-                  onChange={(e) => setMinScore(e.target.checked)} 
-                  className="cursor-pointer"
-                />
-                <span>Score ≥ 0.5</span>
-              </label>
               <button 
                 type="submit" 
                 disabled={loading || !q.trim()}
@@ -177,6 +163,37 @@ function Index() {
               </button>
             </div>
           </div>
+          
+          {/* ============================================================
+              RELEVANCE SLIDER - COMMENT THIS ENTIRE BLOCK TO REMOVE
+              ============================================================ */}
+          {SHOW_RELEVANCE_SLIDER && (
+            <div className="flex items-center gap-4 pt-2">
+              <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                Min Relevance:
+              </label>
+              <input
+                type="range"
+                min={SLIDER_MIN}
+                max={SLIDER_MAX}
+                step={SLIDER_STEP}
+                value={minRelevance}
+                onChange={(e) => setMinRelevance(parseFloat(e.target.value))}
+                className="flex-1 max-w-xs h-1.5 rounded-lg appearance-none cursor-pointer bg-muted accent-accent"
+              />
+              <span className="text-xs font-mono text-muted-foreground w-12">
+                {Math.round(minRelevance * 100)}%
+              </span>
+              <button
+                type="button"
+                onClick={() => setMinRelevance(DEFAULT_MIN_RELEVANCE)}
+                className="text-xs text-muted-foreground hover:text-accent underline"
+              >
+                Reset
+              </button>
+            </div>
+          )}
+          {/* ============================================================ */}
         </form>
       </section>
 
@@ -191,7 +208,7 @@ function Index() {
         {loading && (
           <div className="text-center py-16">
             <div className="text-muted-foreground italic font-serif text-xl animate-pulse">
-              {searchType === "semantic" ? "Understanding your query..." : "Setting type…"}
+              Understanding your query...
             </div>
           </div>
         )}
@@ -204,6 +221,11 @@ function Index() {
             <div className="text-sm text-muted-foreground">
               Try: distributed systems, kubernetes, postgres, rust, databases, performance
             </div>
+            {minRelevance > DEFAULT_MIN_RELEVANCE && (
+              <div className="mt-4 text-xs text-muted-foreground">
+                Try lowering the relevance threshold to see more results.
+              </div>
+            )}
           </div>
         )}
         
@@ -212,11 +234,14 @@ function Index() {
             <div className="flex items-baseline justify-between mb-8 rule-bottom pb-3">
               <div>
                 <h2 className="font-serif text-3xl">Dispatches</h2>
-                {searchType === "semantic" && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Results ranked by semantic relevance to your query
-                  </p>
-                )}
+                <p className="text-xs text-muted-foreground mt-1">
+                  Results ranked by semantic relevance to your query
+                  {minRelevance !== DEFAULT_MIN_RELEVANCE && (
+                    <span className="ml-2 text-accent">
+                      (min relevance: {Math.round(minRelevance * 100)}%)
+                    </span>
+                  )}
+                </p>
               </div>
               <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
                 {results.length} article{results.length !== 1 ? 's' : ''}

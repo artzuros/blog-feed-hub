@@ -17,9 +17,12 @@ type Suggestion = {
   title: string;
   domain: string;
   heuristic_score: number;
+  llm_score?: number;
   combined_score?: number;
   reviewed?: string;
   accepted?: boolean;
+  reddit_score?: number;
+  subreddit?: string;
 };
 
 type Article = {
@@ -45,6 +48,7 @@ function AdminPage() {
   const [processingQueue, setProcessingQueue] = useState(false);
   const [processingArticleId, setProcessingArticleId] = useState<number | null>(null);
   const [acceptingUrl, setAcceptingUrl] = useState<string | null>(null);
+  const [llmReviewingUrl, setLlmReviewingUrl] = useState<string | null>(null);
 
   useEffect(() => {
     const stored = typeof window !== "undefined" ? sessionStorage.getItem("adminApiKey") || "" : "";
@@ -99,8 +103,9 @@ function AdminPage() {
         headers: headers() 
       });
       const data = await resp.json();
+      // Show all non-accepted suggestions
       const pendingSuggestions = Array.isArray(data) ? data.filter(
-        (s: Suggestion) => (s.reviewed === 'llm' || s.reviewed === 'manual') && !s.accepted
+        (s: Suggestion) => !s.accepted
       ) : [];
       setPending(pendingSuggestions);
     } catch { 
@@ -121,6 +126,33 @@ function AdminPage() {
     }
   }
 
+  async function triggerSuggestionLLM(sugUrl: string) {
+    if (llmReviewingUrl === sugUrl) return;
+    setLlmReviewingUrl(sugUrl);
+    flash("⏳ Running LLM review on article... (may take 30-60 seconds)", true);
+    
+    try {
+      const encodedUrl = btoa(sugUrl);
+      const resp = await fetch(`${API_BASE}/suggestions/${encodedUrl}/llm-review`, {
+        method: "POST",
+        headers: headers(),
+      });
+      const data = await resp.json();
+      flash(resp.ok ? `✅ ${data.message}` : `❌ ${data.detail || "Error"}`, resp.ok);
+      if (resp.ok) {
+        // Wait 5 seconds then refresh to show LLM results
+        setTimeout(() => {
+          loadPending();
+          flash("LLM review complete! You can now accept the article.", true);
+        }, 5000);
+      }
+    } catch {
+      flash("Network error", false);
+    } finally {
+      setLlmReviewingUrl(null);
+    }
+  }
+
   async function accept(sugUrl: string) {
     if (acceptingUrl === sugUrl) return;
     setAcceptingUrl(sugUrl);
@@ -134,8 +166,10 @@ function AdminPage() {
       const data = await resp.json();
       flash(resp.ok ? `✅ ${data.message}` : `❌ ${data.detail || "Error"}`, resp.ok);
       if (resp.ok) {
-        setTimeout(loadPending, 800);
-        setTimeout(loadRecentArticles, 1000);
+        setTimeout(() => {
+          loadPending();
+          loadRecentArticles();
+        }, 1000);
       }
     } catch { 
       flash("Network error", false); 
@@ -275,15 +309,11 @@ function AdminPage() {
           <div>
             <div className="text-xs uppercase tracking-[0.3em] text-accent mb-2">Newsroom</div>
             <h1 className="font-serif text-5xl">Editorial controls.</h1>
-            <p className="mt-3 text-muted-foreground">Accept submissions, add curated blogs, and manage LLM reviews.</p>
+            <p className="mt-3 text-muted-foreground">Review Reddit suggestions, manage LLM reviews, and curate articles.</p>
           </div>
           <div className="flex gap-4 items-center">
             <Link 
               to="/blogs"
-              onClick={() => {
-                console.log("Link clicked - navigating to /admin/blogs");
-                console.log("Current path:", window.location.pathname);
-              }}
               className="text-sm underline underline-offset-4 hover:text-accent transition-colors"
             >
               Manage Blogs
@@ -303,13 +333,66 @@ function AdminPage() {
         </div>
       </div>
       
+      {/* Reddit Suggestions Section */}
+      <div className="mb-12">
+        <h2 className="font-serif text-3xl mb-4">Reddit Suggestions</h2>
+        <p className="text-muted-foreground text-sm mb-4">
+          Discovered from Reddit. Run LLM review to get AI scoring, then accept high-quality articles.
+        </p>
+        
+        {pending.length === 0 ? (
+          <div className="text-muted-foreground italic">No pending suggestions. Run Reddit discovery to find articles.</div>
+        ) : (
+          <div className="grid gap-4">
+            {pending.map((s) => (
+              <div key={s.url} className="border border-border rounded-lg p-4 bg-card">
+                <a href={s.url} target="_blank" rel="noreferrer" className="font-serif text-lg hover:text-accent">
+                  {s.title}
+                </a>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {s.domain} · r/{s.subreddit} · 👍 {s.reddit_score}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  Heuristic score: {s.heuristic_score.toFixed(2)}
+                  {s.llm_score && ` · LLM score: ${s.llm_score.toFixed(2)}`}
+                  {s.combined_score && ` · Combined: ${s.combined_score.toFixed(2)}`}
+                </div>
+                <div className="mt-3 flex gap-2">
+                  {!s.llm_score && s.reviewed !== 'processing' && (
+                    <button
+                      onClick={() => triggerSuggestionLLM(s.url)}
+                      disabled={llmReviewingUrl === s.url}
+                      className="text-xs px-3 py-1 rounded border border-foreground/30 hover:border-accent hover:text-accent transition-colors disabled:opacity-50"
+                    >
+                      {llmReviewingUrl === s.url ? "Reviewing..." : "🤖 LLM Review"}
+                    </button>
+                  )}
+                  {s.llm_score && (
+                    <button
+                      onClick={() => accept(s.url)}
+                      disabled={acceptingUrl === s.url}
+                      className="text-xs px-3 py-1 rounded bg-green-600/20 text-green-700 hover:bg-green-600/30 transition-colors disabled:opacity-50"
+                    >
+                      {acceptingUrl === s.url ? "Accepting..." : "✅ Accept Article"}
+                    </button>
+                  )}
+                  {s.reviewed === 'failed' && (
+                    <span className="text-xs text-red-500">LLM review failed - {s.llm_error}</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* LLM Review Section - Shows articles that need review */}
       <div className="mb-12 rule-bottom pb-8">
         <div className="flex justify-between items-center mb-6">
           <div>
-            <h2 className="font-serif text-3xl">LLM Review</h2>
+            <h2 className="font-serif text-3xl">LLM Review Queue</h2>
             <p className="text-muted-foreground text-sm mt-1">
-              Articles without LLM scores (coming from scan without LLM)
+              Articles from curated blogs without LLM scores
             </p>
           </div>
           <button 
@@ -330,7 +413,7 @@ function AdminPage() {
 
         {/* Recent Articles Table */}
         <div>
-          <h3 className="font-serif text-xl mb-4">Recent Articles</h3>
+          <h3 className="font-serif text-xl mb-4">Recent Articles (Curated Blogs)</h3>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="border-b border-border">
@@ -355,16 +438,16 @@ function AdminPage() {
                         >
                           {article.title}
                         </a>
-                      </td>
+                       </td>
                       <td className="py-3 pr-4 text-muted-foreground text-xs">
                         {article.domain}
-                      </td>
+                       </td>
                       <td className="py-3 pr-4">
                         {getStatusBadge(article.llm_review_status)}
-                      </td>
+                       </td>
                       <td className="py-3 pr-4 font-mono text-xs">
                         {article.llm_score ? article.llm_score.toFixed(2) : "-"}
-                      </td>
+                       </td>
                       <td className="py-3">
                         <button
                           onClick={() => triggerSingleArticleLLM(article.id)}
@@ -378,8 +461,8 @@ function AdminPage() {
                             article.llm_score !== undefined ? "Reviewed" : "Review"
                           )}
                         </button>
-                      </td>
-                    </tr>
+                       </td>
+                     </tr>
                   ))
                 ) : (
                   <tr>
@@ -396,34 +479,7 @@ function AdminPage() {
 
       <div className="grid md:grid-cols-2 gap-10">
         <section>
-          <h2 className="font-serif text-3xl rule-bottom pb-2 mb-4">Pending acceptance</h2>
-          {pending.length === 0 ? (
-            <div className="text-muted-foreground italic">No reviewed suggestions pending acceptance.</div>
-          ) : (
-            <ul className="space-y-4">
-              {pending.map((s) => (
-                <li key={s.url} className="rule-bottom pb-3">
-                  <a href={s.url} target="_blank" rel="noreferrer" className="font-serif text-lg hover:text-accent">
-                    {s.title.substring(0, 100)}
-                  </a>
-                  <div className="text-xs text-muted-foreground mt-1">
-                    {s.domain} · score {(s.combined_score ?? s.heuristic_score).toFixed(2)}
-                  </div>
-                  <button
-                    onClick={() => accept(s.url)}
-                    disabled={acceptingUrl === s.url}
-                    className="mt-2 text-xs uppercase tracking-wider border border-foreground/40 hover:border-accent hover:text-accent px-2 py-1 rounded disabled:opacity-50"
-                  >
-                    {acceptingUrl === s.url ? "Accepting..." : "Accept & add to blogs"}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section>
-          <h2 className="font-serif text-3xl rule-bottom pb-2 mb-4">Add a blog</h2>
+          <h2 className="font-serif text-3xl rule-bottom pb-2 mb-4">Add a Curated Blog</h2>
           <div className="space-y-3">
             <input 
               value={name} 
@@ -447,7 +503,7 @@ function AdminPage() {
               onClick={addBlog} 
               className="bg-primary text-primary-foreground px-4 py-2 text-sm uppercase tracking-wider rounded"
             >
-              Add blog
+              Add Blog
             </button>
           </div>
 

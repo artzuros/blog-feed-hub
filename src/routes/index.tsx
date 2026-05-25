@@ -20,7 +20,7 @@ type Article = {
   combined_score: number;
   source: string;
   keywords?: string;
-  semantic_relevance?: number; // For semantic search results
+  semantic_relevance?: number;
 };
 
 function Index() {
@@ -30,21 +30,15 @@ function Index() {
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<Article[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [searchMode, setSearchMode] = useState<"hybrid" | "semantic" | "keyword">("hybrid");
   
   // ============================================================
   // SLIDER CONFIGURATION - ADJUST THESE VALUES
   // ============================================================
-  // Default min relevance threshold (0.5 = 50% similarity)
-  // Lower = more results (but less relevant), Higher = fewer results (more relevant)
-  const DEFAULT_MIN_RELEVANCE = 0.5;
-  
-  // Show/hide the relevance slider (true = show, false = hide)
-  // TODO: Set to false to hide the slider from users
-  const SHOW_RELEVANCE_SLIDER = true;  // ← Change to false to hide slider
-  
-  // Slider min/max values
+  const DEFAULT_MIN_RELEVANCE = 0.4;
+  const SHOW_RELEVANCE_SLIDER = true;
   const SLIDER_MIN = 0.3;
-  const SLIDER_MAX = 0.9;
+  const SLIDER_MAX = 0.8;
   const SLIDER_STEP = 0.05;
   // ============================================================
   
@@ -71,33 +65,72 @@ function Index() {
     setError(null);
     setResults(null);
     
-    // Always use semantic search (removed keyword toggle)
-    let url = `${API_BASE}/semantic-search?q=${encodeURIComponent(q)}&limit=50`;
-    
-    // Add min relevance filter (only if not default or slider is shown)
-    if (minRelevance !== DEFAULT_MIN_RELEVANCE || SHOW_RELEVANCE_SLIDER) {
-      url += `&min_relevance=${minRelevance}`;
-    }
-    
-    if (minScore) url += "&min_score=0.5";
-    if (source) url += `&source=${source}`;
-    
     try {
-      const resp = await fetch(url);
+      let articles: Article[] = [];
       
-      if (!resp.ok) {
-        if (resp.status === 429) {
-          setError("Rate limit exceeded. Please wait a moment.");
-        } else if (resp.status === 500) {
-          setError("Server error. Please try again later.");
-        } else {
-          setError(`Error ${resp.status}: Failed to fetch results`);
+      if (searchMode === "keyword") {
+        // Pure keyword search
+        let url = `${API_BASE}/search?q=${encodeURIComponent(q)}&limit=50`;
+        if (minScore) url += "&min_score=0.5";
+        if (source) url += `&source=${source}`;
+        
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        articles = data.articles || [];
+        
+      } else if (searchMode === "semantic") {
+        // Pure semantic search
+        let url = `${API_BASE}/semantic-search?q=${encodeURIComponent(q)}&limit=50&min_relevance=${minRelevance}`;
+        if (minScore) url += "&min_score=0.5";
+        if (source) url += `&source=${source}`;
+        
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        articles = data.articles || [];
+        
+      } else {
+        // HYBRID: Run both searches and combine results
+        const keywordUrl = `${API_BASE}/search?q=${encodeURIComponent(q)}&limit=30`;
+        const semanticUrl = `${API_BASE}/semantic-search?q=${encodeURIComponent(q)}&limit=30&min_relevance=${minRelevance}`;
+        
+        const [keywordResp, semanticResp] = await Promise.all([
+          fetch(keywordUrl),
+          fetch(semanticUrl)
+        ]);
+        
+        const keywordData = keywordResp.ok ? await keywordResp.json() : { articles: [] };
+        const semanticData = semanticResp.ok ? await semanticResp.json() : { articles: [] };
+        
+        const keywordArticles = keywordData.articles || [];
+        const semanticArticles = semanticData.articles || [];
+        
+        // Merge: keyword results first (exact matches), then semantic results not already included
+        const seenUrls = new Set<string>();
+        const combined: Article[] = [];
+        
+        // Add keyword results first (these are exact matches, highest priority)
+        for (const article of keywordArticles) {
+          if (!seenUrls.has(article.url)) {
+            seenUrls.add(article.url);
+            combined.push({ ...article, semantic_relevance: undefined });
+          }
         }
-        return;
+        
+        // Add semantic results that aren't duplicates
+        for (const article of semanticArticles) {
+          if (!seenUrls.has(article.url)) {
+            seenUrls.add(article.url);
+            combined.push(article);
+          }
+        }
+        
+        articles = combined.slice(0, 50);
       }
       
-      const data = await resp.json();
-      setResults(data.articles || []);
+      setResults(articles);
+      
     } catch (err) {
       console.error("Search error:", err);
       setError("Network error. Is the API running?");
@@ -127,7 +160,48 @@ function Index() {
       {/* Search */}
       <section className="py-10 rule-bottom">
         <form onSubmit={search} className="space-y-6">
-          {/* Removed search type toggle - now always semantic search */}
+          {/* Search Mode Toggle */}
+          <div className="flex gap-6 items-center justify-end border-b border-border/50 pb-3">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input 
+                type="radio" 
+                name="searchMode"
+                value="hybrid" 
+                checked={searchMode === "hybrid"}
+                onChange={() => setSearchMode("hybrid")}
+                className="cursor-pointer"
+              />
+              <span className={searchMode === "hybrid" ? "text-accent font-medium" : "text-muted-foreground"}>
+                🔍 Hybrid (Best)
+              </span>
+            </label>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input 
+                type="radio" 
+                name="searchMode"
+                value="keyword" 
+                checked={searchMode === "keyword"}
+                onChange={() => setSearchMode("keyword")}
+                className="cursor-pointer"
+              />
+              <span className={searchMode === "keyword" ? "text-accent font-medium" : "text-muted-foreground"}>
+                📝 Keyword
+              </span>
+            </label>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input 
+                type="radio" 
+                name="searchMode"
+                value="semantic" 
+                checked={searchMode === "semantic"}
+                onChange={() => setSearchMode("semantic")}
+                className="cursor-pointer"
+              />
+              <span className={searchMode === "semantic" ? "text-accent font-medium" : "text-muted-foreground"}>
+                🧠 Semantic
+              </span>
+            </label>
+          </div>
           
           <div className="grid md:grid-cols-12 gap-4 items-end">
             <div className="md:col-span-7">
@@ -154,6 +228,15 @@ function Index() {
               </select>
             </div>
             <div className="md:col-span-2 flex flex-col gap-3">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  checked={minScore} 
+                  onChange={(e) => setMinScore(e.target.checked)} 
+                  className="cursor-pointer"
+                />
+                <span>Score ≥ 0.5</span>
+              </label>
               <button 
                 type="submit" 
                 disabled={loading || !q.trim()}
@@ -164,10 +247,8 @@ function Index() {
             </div>
           </div>
           
-          {/* ============================================================
-              RELEVANCE SLIDER - COMMENT THIS ENTIRE BLOCK TO REMOVE
-              ============================================================ */}
-          {SHOW_RELEVANCE_SLIDER && (
+          {/* Relevance Slider - Only show for semantic/hybrid modes */}
+          {(searchMode === "semantic" || searchMode === "hybrid") && SHOW_RELEVANCE_SLIDER && (
             <div className="flex items-center gap-4 pt-2">
               <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
                 Min Relevance:
@@ -193,7 +274,6 @@ function Index() {
               </button>
             </div>
           )}
-          {/* ============================================================ */}
         </form>
       </section>
 
@@ -208,7 +288,9 @@ function Index() {
         {loading && (
           <div className="text-center py-16">
             <div className="text-muted-foreground italic font-serif text-xl animate-pulse">
-              Understanding your query...
+              {searchMode === "hybrid" ? "Searching with hybrid method..." : 
+               searchMode === "semantic" ? "Understanding your query..." : 
+               "Finding matches..."}
             </div>
           </div>
         )}
@@ -221,9 +303,14 @@ function Index() {
             <div className="text-sm text-muted-foreground">
               Try: distributed systems, kubernetes, postgres, rust, databases, performance
             </div>
-            {minRelevance > DEFAULT_MIN_RELEVANCE && (
+            {searchMode === "semantic" && minRelevance > DEFAULT_MIN_RELEVANCE && (
               <div className="mt-4 text-xs text-muted-foreground">
                 Try lowering the relevance threshold to see more results.
+              </div>
+            )}
+            {searchMode === "hybrid" && (
+              <div className="mt-4 text-xs text-muted-foreground">
+                Hybrid search combines keyword matching and semantic understanding. Try a different query.
               </div>
             )}
           </div>
@@ -235,8 +322,10 @@ function Index() {
               <div>
                 <h2 className="font-serif text-3xl">Dispatches</h2>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Results ranked by semantic relevance to your query
-                  {minRelevance !== DEFAULT_MIN_RELEVANCE && (
+                  {searchMode === "hybrid" ? "Keyword matches first, then semantic results" :
+                   searchMode === "semantic" ? "Results ranked by semantic relevance to your query" :
+                   "Results ranked by combined score"}
+                  {minRelevance !== DEFAULT_MIN_RELEVANCE && searchMode !== "keyword" && (
                     <span className="ml-2 text-accent">
                       (min relevance: {Math.round(minRelevance * 100)}%)
                     </span>
@@ -270,7 +359,7 @@ function Index() {
                     <span>·</span>
                     <span className={scoreClass(a.combined_score)}>signal {a.combined_score.toFixed(2)}</span>
                   </div>
-                  {a.keywords && (
+                  {a.keywords && searchMode !== "semantic" && (
                     <div className="mt-2 text-xs text-muted-foreground/80 font-mono">
                       {a.keywords}
                     </div>

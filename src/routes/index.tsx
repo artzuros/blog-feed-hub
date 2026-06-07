@@ -157,15 +157,6 @@ function Index() {
               </select>
             </div>
             <div className="md:col-span-2 flex flex-col gap-3">
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input 
-                  type="checkbox" 
-                  checked={minScore} 
-                  onChange={(e) => setMinScore(e.target.checked)} 
-                  className="cursor-pointer"
-                />
-                <span>Score ≥ 0.5</span>
-              </label>
               <button 
                 type="submit" 
                 disabled={loading || !q.trim()}

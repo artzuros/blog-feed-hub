@@ -1,12 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { usePostHog } from "@posthog/react";
 import { API_BASE } from "@/lib/api";
 
 export const Route = createFileRoute("/suggestions")({
   head: () => ({
     meta: [
       { title: "Suggestions — Blog Feed" },
-      { name: "description", content: "Help curate the archive. Upvote promising blogs, downvote the rest." },
+      {
+        name: "description",
+        content: "Help curate the archive. Upvote promising blogs, downvote the rest.",
+      },
     ],
   }),
   component: SuggestionsPage,
@@ -26,6 +30,7 @@ type Suggestion = {
 };
 
 function SuggestionsPage() {
+  const posthog = usePostHog();
   const [sortBy, setSortBy] = useState("discovered_at");
   const [list, setList] = useState<Suggestion[]>([]);
   const [loading, setLoading] = useState(false);
@@ -33,22 +38,27 @@ function SuggestionsPage() {
   const [votingUrl, setVotingUrl] = useState<string | null>(null);
 
   async function load() {
-    setLoading(true); setError(null);
+    setLoading(true);
+    setError(null);
     try {
       // Add sort parameter to backend call
       const resp = await fetch(`${API_BASE}/suggestions?limit=100&sort_by=${sortBy}`);
       const data = await resp.json();
       // Handle both array and object responses
-      setList(Array.isArray(data) ? data : (data.suggestions || []));
+      setList(Array.isArray(data) ? data : data.suggestions || []);
     } catch {
       setError("Failed to load suggestions.");
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function vote(url: string, voteType: "up" | "down") {
     if (votingUrl === url) return; // Prevent double vote
     setVotingUrl(url);
-    
+
+    const suggestion = list.find((s) => s.url === url);
+
     try {
       const encodedUrl = btoa(url);
       const resp = await fetch(`${API_BASE}/suggestions/${encodedUrl}/vote`, {
@@ -59,6 +69,13 @@ function SuggestionsPage() {
       if (!resp.ok) {
         const err = await resp.json();
         alert(`Error: ${err.detail || "Vote failed"}`);
+      } else {
+        posthog.capture("suggestion_voted", {
+          vote_type: voteType,
+          domain: suggestion?.domain,
+          subreddit: suggestion?.subreddit,
+          reddit_score: suggestion?.reddit_score,
+        });
       }
       await load(); // Reload to get updated votes
     } catch {
@@ -68,7 +85,9 @@ function SuggestionsPage() {
     }
   }
 
-  useEffect(() => { load(); }, [sortBy]);
+  useEffect(() => {
+    load();
+  }, [sortBy]);
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-16">
@@ -76,27 +95,43 @@ function SuggestionsPage() {
         <div className="text-xs uppercase tracking-[0.3em] text-accent mb-2">Editor's desk</div>
         <h1 className="font-serif text-5xl md:text-6xl leading-tight">The submissions pile.</h1>
         <p className="mt-4 text-lg text-muted-foreground max-w-2xl">
-          Fresh candidates from the wild. Cast a vote — upvote a sharp engineering voice, downvote the noise.
+          Fresh candidates from the wild. Cast a vote — upvote a sharp engineering voice, downvote
+          the noise.
         </p>
         <div className="mt-6 flex gap-4 items-center">
-          <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Sort by</label>
+          <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+            Sort by
+          </label>
           <select
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
+            onChange={(e) => {
+              posthog.capture("suggestions_sorted", {
+                sort_by: e.target.value,
+                previous_sort: sortBy,
+              });
+              setSortBy(e.target.value);
+            }}
             className="bg-card border border-border rounded px-3 py-1 text-sm"
           >
             <option value="discovered_at">Newest first</option>
             <option value="net_votes">Highest net votes</option>
             <option value="reddit_score">Highest Reddit score</option>
           </select>
-          <button onClick={load} className="ml-auto text-sm underline underline-offset-4 hover:text-accent">Refresh</button>
+          <button
+            onClick={load}
+            className="ml-auto text-sm underline underline-offset-4 hover:text-accent"
+          >
+            Refresh
+          </button>
         </div>
       </div>
 
       {loading && <div className="text-muted-foreground italic">Loading the pile…</div>}
       {error && <div className="text-destructive">{error}</div>}
       {!loading && list.length === 0 && (
-        <div className="text-muted-foreground font-serif italic text-xl">The pile is empty. Check back later.</div>
+        <div className="text-muted-foreground font-serif italic text-xl">
+          The pile is empty. Check back later.
+        </div>
       )}
 
       <ol className="space-y-10">
@@ -107,7 +142,9 @@ function SuggestionsPage() {
             </div>
             <div>
               <h2 className="font-serif text-2xl leading-tight">
-                <a href={s.url} target="_blank" rel="noreferrer" className="hover:text-accent">{s.title}</a>
+                <a href={s.url} target="_blank" rel="noreferrer" className="hover:text-accent">
+                  {s.title}
+                </a>
               </h2>
               <div className="mt-2 text-sm text-muted-foreground">
                 <span className="italic">{s.domain}</span> · r/{s.subreddit} · 👍 {s.reddit_score}
@@ -134,7 +171,9 @@ function SuggestionsPage() {
                   ▼ {s.downvotes || 0}
                 </button>
               </div>
-              <div className="text-xs text-muted-foreground tabular-nums">net {s.net_votes || 0}</div>
+              <div className="text-xs text-muted-foreground tabular-nums">
+                net {s.net_votes || 0}
+              </div>
             </div>
           </li>
         ))}

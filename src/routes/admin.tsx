@@ -1,13 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { usePostHog } from "@posthog/react";
 import { API_BASE } from "@/lib/api";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({
-    meta: [
-      { title: "Admin — Blog Feed" },
-      { name: "robots", content: "noindex" },
-    ],
+    meta: [{ title: "Admin — Blog Feed" }, { name: "robots", content: "noindex" }],
   }),
   component: AdminPage,
 });
@@ -23,26 +21,27 @@ type Article = {
 };
 
 function AdminPage() {
+  const posthog = usePostHog();
   const [apiKey, setApiKey] = useState("");
   const [authed, setAuthed] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
   const [recentArticles, setRecentArticles] = useState<Article[]>([]);
   const [status, setStatus] = useState<{ msg: string; ok: boolean } | null>(null);
-  const [name, setName] = useState(""); 
-  const [url, setUrl] = useState(""); 
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
   const [rss, setRss] = useState("");
   const [processingQueue, setProcessingQueue] = useState(false);
   const [processingArticleId, setProcessingArticleId] = useState<number | null>(null);
 
   useEffect(() => {
     const stored = typeof window !== "undefined" ? sessionStorage.getItem("adminApiKey") || "" : "";
-    if (stored) { 
-      setApiKey(stored); 
+    if (stored) {
+      setApiKey(stored);
       validateKey(stored);
     }
   }, []);
 
-  useEffect(() => { 
+  useEffect(() => {
     if (authed) {
       loadRecentArticles();
     }
@@ -52,12 +51,13 @@ function AdminPage() {
     setIsValidating(true);
     try {
       const resp = await fetch(`${API_BASE}/admin/verify`, {
-        headers: { "X-API-Key": key }
+        headers: { "X-API-Key": key },
       });
       if (resp.ok) {
         setAuthed(true);
         sessionStorage.setItem("adminApiKey", key);
         flash("Authenticated", true);
+        posthog.capture("admin_authenticated");
       } else {
         setAuthed(false);
         sessionStorage.removeItem("adminApiKey");
@@ -82,14 +82,14 @@ function AdminPage() {
 
   async function loadRecentArticles() {
     try {
-      const resp = await fetch(`${API_BASE}/articles?limit=50`, { 
-        headers: headers() 
+      const resp = await fetch(`${API_BASE}/articles?limit=50`, {
+        headers: headers(),
       });
       const data = await resp.json();
       const articles = data.articles || (Array.isArray(data) ? data : []);
       setRecentArticles(articles);
-    } catch { 
-      flash("Error loading articles", false); 
+    } catch {
+      flash("Error loading articles", false);
     }
   }
 
@@ -97,16 +97,22 @@ function AdminPage() {
     if (!name || !url) return flash("Name and URL required", false);
     try {
       const resp = await fetch(`${API_BASE}/blogs`, {
-        method: "POST", headers: headers(),
+        method: "POST",
+        headers: headers(),
         body: JSON.stringify({ name, url, rss: rss || null }),
       });
       const data = await resp.json();
       if (resp.ok) {
         flash(`✅ ${data.message}`, true);
-        setName(""); setUrl(""); setRss("");
+        posthog.capture("blog_added", { blog_name: name, blog_url: url, has_rss: !!rss });
+        setName("");
+        setUrl("");
+        setRss("");
         setTimeout(loadRecentArticles, 1000);
       } else flash(`❌ ${data.detail || "Error"}`, false);
-    } catch { flash("Network error", false); }
+    } catch {
+      flash("Network error", false);
+    }
   }
 
   async function triggerScan() {
@@ -118,7 +124,9 @@ function AdminPage() {
       setTimeout(() => {
         loadRecentArticles();
       }, 2000);
-    } catch { flash("Scan failed", false); }
+    } catch {
+      flash("Scan failed", false);
+    }
   }
 
   async function triggerLLMQueue() {
@@ -126,34 +134,41 @@ function AdminPage() {
     setProcessingQueue(true);
     flash("⏳ Queueing articles for LLM review…", true);
     try {
-      const resp = await fetch(`${API_BASE}/admin/llm/review-queue`, { 
-        method: "POST", 
-        headers: headers() 
+      const resp = await fetch(`${API_BASE}/admin/llm/review-queue`, {
+        method: "POST",
+        headers: headers(),
       });
       const data = await resp.json();
       flash(`✅ ${data.message || "Queue processed"}`, true);
+      posthog.capture("llm_review_queued");
       setTimeout(() => {
         loadRecentArticles();
       }, 2000);
-    } catch { flash("Queue review failed", false); }
-    finally { setProcessingQueue(false); }
+    } catch {
+      flash("Queue review failed", false);
+    } finally {
+      setProcessingQueue(false);
+    }
   }
 
   async function triggerSingleArticleLLM(articleId: number) {
     setProcessingArticleId(articleId);
     flash(`⏳ Triggering LLM review for article ${articleId}…`, true);
     try {
-      const resp = await fetch(`${API_BASE}/admin/llm/review-article/${articleId}`, { 
-        method: "POST", 
-        headers: headers() 
+      const resp = await fetch(`${API_BASE}/admin/llm/review-article/${articleId}`, {
+        method: "POST",
+        headers: headers(),
       });
       const data = await resp.json();
       flash(`✅ ${data.message || "Review completed"}`, true);
       setTimeout(() => {
         loadRecentArticles();
       }, 1000);
-    } catch { flash("Article review failed", false); }
-    finally { setProcessingArticleId(null); }
+    } catch {
+      flash("Article review failed", false);
+    } finally {
+      setProcessingArticleId(null);
+    }
   }
 
   function getStatusBadge(status?: string) {
@@ -164,11 +179,9 @@ function AdminPage() {
       failed: "bg-red-500/20 text-red-700 dark:text-red-400",
     };
     const defaultStyle = "bg-gray-500/20 text-gray-700 dark:text-gray-400";
-    const style = status ? (styles[status] || defaultStyle) : defaultStyle;
+    const style = status ? styles[status] || defaultStyle : defaultStyle;
     return (
-      <span className={`text-xs px-2 py-0.5 rounded-full ${style}`}>
-        {status || "pending"}
-      </span>
+      <span className={`text-xs px-2 py-0.5 rounded-full ${style}`}>{status || "pending"}</span>
     );
   }
 
@@ -177,13 +190,19 @@ function AdminPage() {
     return (
       <div className="mx-auto max-w-md px-6 py-20">
         <div className="rule-bottom pb-6 mb-10 text-center">
-          <div className="text-xs uppercase tracking-[0.3em] text-accent mb-2">Restricted Access</div>
+          <div className="text-xs uppercase tracking-[0.3em] text-accent mb-2">
+            Restricted Access
+          </div>
           <h1 className="font-serif text-4xl">Admin verification</h1>
-          <p className="mt-3 text-muted-foreground text-sm">Enter your API key to access editorial controls.</p>
+          <p className="mt-3 text-muted-foreground text-sm">
+            Enter your API key to access editorial controls.
+          </p>
         </div>
         <div className="space-y-4">
           <div>
-            <label className="block text-xs uppercase tracking-[0.2em] text-muted-foreground mb-2">API Key</label>
+            <label className="block text-xs uppercase tracking-[0.2em] text-muted-foreground mb-2">
+              API Key
+            </label>
             <input
               type="password"
               value={apiKey}
@@ -194,9 +213,9 @@ function AdminPage() {
               autoFocus
             />
           </div>
-          
-          <button 
-            onClick={() => validateKey(apiKey)} 
+
+          <button
+            onClick={() => validateKey(apiKey)}
             disabled={isValidating}
             className="w-full bg-primary text-primary-foreground px-4 py-3 text-sm uppercase tracking-wider rounded disabled:opacity-50"
           >
@@ -204,9 +223,7 @@ function AdminPage() {
           </button>
 
           {status && !status.ok && (
-            <div className="text-destructive text-sm text-center mt-4">
-              {status.msg}
-            </div>
+            <div className="text-destructive text-sm text-center mt-4">{status.msg}</div>
           )}
         </div>
       </div>
@@ -224,13 +241,13 @@ function AdminPage() {
             <p className="mt-3 text-muted-foreground">Manage curated blogs and LLM reviews.</p>
           </div>
           <div className="flex gap-4 items-center">
-            <Link 
+            <Link
               to="/blogs"
               className="text-sm underline underline-offset-4 hover:text-accent transition-colors"
             >
               Manage Blogs & Reddit
             </Link>
-            <button 
+            <button
               onClick={() => {
                 sessionStorage.removeItem("adminApiKey");
                 setAuthed(false);
@@ -254,7 +271,7 @@ function AdminPage() {
               Articles from curated blogs without LLM scores
             </p>
           </div>
-          <button 
+          <button
             onClick={triggerLLMQueue}
             disabled={processingQueue}
             className="bg-accent text-accent-foreground px-5 py-2 text-sm uppercase tracking-wider rounded disabled:opacity-50 flex items-center gap-2"
@@ -289,39 +306,43 @@ function AdminPage() {
                   recentArticles.slice(0, 20).map((article) => (
                     <tr key={article.id} className="border-b border-border/50">
                       <td className="py-3 pr-4">
-                        <a 
-                          href={article.url} 
-                          target="_blank" 
+                        <a
+                          href={article.url}
+                          target="_blank"
                           rel="noreferrer"
                           className="hover:text-accent transition-colors line-clamp-1"
                         >
                           {article.title}
                         </a>
-                       </td>
-                      <td className="py-3 pr-4 text-muted-foreground text-xs">
-                        {article.domain}
-                       </td>
-                      <td className="py-3 pr-4">
-                        {getStatusBadge(article.llm_review_status)}
-                       </td>
+                      </td>
+                      <td className="py-3 pr-4 text-muted-foreground text-xs">{article.domain}</td>
+                      <td className="py-3 pr-4">{getStatusBadge(article.llm_review_status)}</td>
                       <td className="py-3 pr-4 font-mono text-xs">
                         {article.llm_score ? article.llm_score.toFixed(2) : "-"}
-                       </td>
+                      </td>
                       <td className="py-3">
                         <button
                           onClick={() => triggerSingleArticleLLM(article.id)}
-                          disabled={processingArticleId === article.id || article.llm_score !== undefined}
+                          disabled={
+                            processingArticleId === article.id || article.llm_score !== undefined
+                          }
                           className="text-xs px-3 py-1 rounded border border-foreground/30 hover:border-accent hover:text-accent transition-colors disabled:opacity-50"
-                          title={article.llm_score !== undefined ? "Already reviewed" : "Trigger LLM review"}
+                          title={
+                            article.llm_score !== undefined
+                              ? "Already reviewed"
+                              : "Trigger LLM review"
+                          }
                         >
                           {processingArticleId === article.id ? (
                             <span className="animate-spin inline-block">⏳</span>
+                          ) : article.llm_score !== undefined ? (
+                            "Reviewed"
                           ) : (
-                            article.llm_score !== undefined ? "Reviewed" : "Review"
+                            "Review"
                           )}
                         </button>
-                       </td>
-                     </tr>
+                      </td>
+                    </tr>
                   ))
                 ) : (
                   <tr>
@@ -340,26 +361,26 @@ function AdminPage() {
         <section>
           <h2 className="font-serif text-3xl rule-bottom pb-2 mb-4">Add a Curated Blog</h2>
           <div className="space-y-3">
-            <input 
-              value={name} 
-              onChange={(e) => setName(e.target.value)} 
-              placeholder="Name" 
-              className="w-full bg-card border border-border rounded px-3 py-2 text-sm" 
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Name"
+              className="w-full bg-card border border-border rounded px-3 py-2 text-sm"
             />
-            <input 
-              value={url} 
-              onChange={(e) => setUrl(e.target.value)} 
-              placeholder="URL (https://...)" 
-              className="w-full bg-card border border-border rounded px-3 py-2 text-sm" 
+            <input
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="URL (https://...)"
+              className="w-full bg-card border border-border rounded px-3 py-2 text-sm"
             />
-            <input 
-              value={rss} 
-              onChange={(e) => setRss(e.target.value)} 
-              placeholder="RSS URL (optional)" 
-              className="w-full bg-card border border-border rounded px-3 py-2 text-sm" 
+            <input
+              value={rss}
+              onChange={(e) => setRss(e.target.value)}
+              placeholder="RSS URL (optional)"
+              className="w-full bg-card border border-border rounded px-3 py-2 text-sm"
             />
-            <button 
-              onClick={addBlog} 
+            <button
+              onClick={addBlog}
               className="bg-primary text-primary-foreground px-4 py-2 text-sm uppercase tracking-wider rounded"
             >
               Add Blog
@@ -367,8 +388,8 @@ function AdminPage() {
           </div>
 
           <div className="mt-8 rule-top pt-6">
-            <button 
-              onClick={triggerScan} 
+            <button
+              onClick={triggerScan}
               className="w-full bg-secondary text-secondary-foreground px-5 py-2 text-sm uppercase tracking-wider rounded"
             >
               Trigger Manual Feed Scan
@@ -378,9 +399,13 @@ function AdminPage() {
       </div>
 
       {status && (
-        <div className={`mt-8 p-3 rounded text-sm text-center ${
-          status.ok ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" : "bg-destructive/10 text-destructive"
-        }`}>
+        <div
+          className={`mt-8 p-3 rounded text-sm text-center ${
+            status.ok
+              ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+              : "bg-destructive/10 text-destructive"
+          }`}
+        >
           {status.msg}
         </div>
       )}

@@ -2,7 +2,7 @@
 // Override with VITE_API_BASE (e.g. https://api.example.com) when the React
 // app is served from a different origin than the FastAPI backend.
 // export const API_BASE = "https://blog-feed-api.pranav-bansal.com/api";
-export const API_BASE = "curl http://54.167.42.110:8765/api";
+export const API_BASE = "http://54.167.42.110:8765/api";
 
 export function scoreClass(score: number) {
   if (score >= 0.7) return "text-emerald-700 dark:text-emerald-400";
